@@ -1,6 +1,10 @@
+
 import asyncio
 import importlib
-from sys import argv
+import os
+import sys
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pyrogram import idle
 from pytgcalls.exceptions import NoActiveGroupCall
 
@@ -12,8 +16,30 @@ from BrandrdXMusic.plugins import ALL_MODULES
 from BrandrdXMusic.utils.database import get_banned_users, get_gbanned
 from config import BANNED_USERS
 
+# HTTP Health Check Server for Render (port detect fix)
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'BrandrdXMusic Bot is running')
+    
+    def log_message(self, format, *args):
+        pass  # Suppress logs
+
+def run_http_server():
+    """HTTP server for Render port detection"""
+    port = int(os.environ.get("PORT", 8000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    LOGGER(__name__).info(f"🌐 HTTP Health server started on port {port}")
+    server.serve_forever()
 
 async def init():
+    # Start HTTP server thread FIRST (Render requirement)
+    http_thread = threading.Thread(target=run_http_server, daemon=True)
+    http_thread.start()
+    LOGGER(__name__).info("🌐 HTTP server thread started for Render")
+
     if (
         not config.STRING1
         and not config.STRING2
@@ -22,7 +48,8 @@ async def init():
         and not config.STRING5
     ):
         LOGGER(__name__).error("Assistant client variables not defined, exiting...")
-        exit()
+        return
+
     await sudo()
     try:
         users = await get_gbanned()
@@ -33,30 +60,34 @@ async def init():
             BANNED_USERS.add(user_id)
     except:
         pass
+    
     await app.start()
     for all_module in ALL_MODULES:
         importlib.import_module("BrandrdXMusic.plugins" + all_module)
     LOGGER("BrandrdXMusic.plugins").info("Successfully Imported Modules...")
+    
     await userbot.start()
     await Hotty.start()
+    
     try:
         await Hotty.stream_call("https://graph.org/file/e999c40cb700e7c684b75.mp4")
     except NoActiveGroupCall:
         LOGGER("BrandrdXMusic").error(
-            "Please turn on the videochat of your log group\channel.\n\nStopping Bot..."
+            "Please turn on the videochat of your log groupchannel.
+
+Bot will continue without VC test..."
         )
-        exit()
     except:
         pass
+    
     await Hotty.decorators()
     LOGGER("BrandrdXMusic").info(
-        "ᴅʀᴏᴘ ʏᴏᴜʀ ɢɪʀʟꜰʀɪᴇɴᴅ'ꜱ ɴᴜᴍʙᴇʀ ᴀᴛ @BRANDED_PAID_CC ᴊᴏɪɴ @BRANDRD_BOT , @BRANDED_WORLD ꜰᴏʀ ᴀɴʏ ɪꜱꜱᴜᴇꜱ"
+        "🎉 BrandrdXMusic Bot Started Successfully! Join @BRANDRD_BOT for support"
     )
     await idle()
     await app.stop()
     await userbot.stop()
     LOGGER("BrandrdXMusic").info("Stopping Brandrd Music Bot...")
-
 
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(init())
