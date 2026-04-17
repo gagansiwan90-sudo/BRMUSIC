@@ -1,4 +1,3 @@
-
 import asyncio
 import importlib
 import os
@@ -73,9 +72,9 @@ async def init():
         await Hotty.stream_call("https://graph.org/file/e999c40cb700e7c684b75.mp4")
     except NoActiveGroupCall:
         LOGGER("BrandrdXMusic").error(
-            "Please turn on the videochat of your log groupchannel.
-
-Bot will continue without VC test..."
+            "Please turn on the videochat of your log group/channel.
+"
+            "Bot will continue without VC test..."
         )
     except:
         pass
@@ -84,10 +83,17 @@ Bot will continue without VC test..."
     LOGGER("BrandrdXMusic").info(
         "🎉 BrandrdXMusic Bot Started Successfully! Join @BRANDRD_BOT for support"
     )
+    
+    # Keep both HTTP server + bot running
     await idle()
+    
+    # Cleanup (won't reach here normally)
     await app.stop()
     await userbot.stop()
     LOGGER("BrandrdXMusic").info("Stopping Brandrd Music Bot...")
 
 if __name__ == "__main__":
-    asyncio.get_event_loop().run_until_complete(init())
+    try:
+        asyncio.run(init())  # Modern asyncio syntax
+    except KeyboardInterrupt:
+        LOGGER("BrandrdXMusic").info("Bot stopped by user")
