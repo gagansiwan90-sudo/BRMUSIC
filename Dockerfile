@@ -11,4 +11,4 @@ WORKDIR /app/
 RUN python3 -m pip install --upgrade pip setuptools
 RUN pip3 install --no-cache-dir --upgrade --requirement requirements.txt
 
-CMD python3 main.py
+CMD python3 BrandrdXMusic
