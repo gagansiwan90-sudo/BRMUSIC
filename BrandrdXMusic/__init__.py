@@ -16,7 +16,6 @@ app = Hotty()
 userbot = Userbot()
 api = SafoneAPI()
 
-
 from .platforms import *
 
 Apple = AppleAPI()
