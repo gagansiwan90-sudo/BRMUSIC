@@ -5,10 +5,10 @@ import sys
 import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from pyrogram import idle
-from pytgcalls.exceptions import NoActiveGroupCall
 
-# Raise the file descriptor limit on Linux
+# ──────────────────────────────────────────────
+# Raise file descriptor limit on Linux
+# ──────────────────────────────────────────────
 if sys.platform != "win32":
     try:
         import resource
@@ -19,6 +19,44 @@ if sys.platform != "win32":
     except Exception:
         pass
 
+# ──────────────────────────────────────────────
+# HTTP Health-check server
+# Render scans for open port RIGHT after launch.
+# We must bind the port BEFORE importing the bot
+# (because BrandrdXMusic.__init__ runs heavy setup).
+# ──────────────────────────────────────────────
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"BrandrdXMusic Bot is running")
+
+    def log_message(self, format, *args):
+        pass  # suppress noisy logs
+
+
+def _run_server(port: int):
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    print(f"[HTTP] Health-check server listening on port {port}", flush=True)
+    server.serve_forever()
+
+
+def start_http_server():
+    port = int(os.environ.get("PORT", 8080))
+    t = threading.Thread(target=_run_server, args=(port,), daemon=True)
+    t.start()
+    time.sleep(1)  # wait for socket to actually bind
+
+
+# ─── Bind port FIRST ──────────────────────────
+start_http_server()
+
+# ─── NOW import the bot (heavy, slow imports) ─
+from pyrogram import idle
+from pytgcalls.exceptions import NoActiveGroupCall
+
 import config
 from BrandrdXMusic import LOGGER, app, userbot
 from BrandrdXMusic.core.call import Hotty
@@ -27,83 +65,45 @@ from BrandrdXMusic.plugins import ALL_MODULES
 from BrandrdXMusic.utils.database import get_banned_users, get_gbanned
 from config import BANNED_USERS
 
-# HTTP Server for Render health checks
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    """Simple HTTP handler for Render health checks"""
 
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/plain')
-        self.end_headers()
-        self.wfile.write(b'BrandrdXMusic Bot is running')
-
-    def log_message(self, format, *args):
-        pass  # Suppress noisy logs
-
-def run_http_server():
-    """Run HTTP server on port 8080 for Render"""
-    # Always use 8080 — Render Web Service expects this port
-    port = 8080
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    LOGGER(__name__).info(f"HTTP health check server started on port {port}")
-    server.serve_forever()
-
-def start_http_server():
-    """Start HTTP server in daemon thread and wait until it's actually bound"""
-    http_thread = threading.Thread(target=run_http_server, daemon=True)
-    http_thread.start()
-    # Give server a moment to bind the port before Render scans
-    time.sleep(2)
-    LOGGER(__name__).info("HTTP server thread started on port 8080")
+# ──────────────────────────────────────────────
+# Async bot initialisation
+# ──────────────────────────────────────────────
 
 async def init():
     try:
-        # Step 1: Start HTTP server FIRST so Render detects the open port immediately
-        start_http_server()
-
-        # Step 2: Validate required environment variables
-        if (
-            not config.STRING1
-            and not config.STRING2
-            and not config.STRING3
-            and not config.STRING4
-            and not config.STRING5
-        ):
+        # Validate at least one assistant string
+        if not any([
+            config.STRING1, config.STRING2, config.STRING3,
+            config.STRING4, config.STRING5,
+        ]):
             LOGGER(__name__).error("Assistant client variables not defined, exiting...")
             return
 
-        # Step 3: Load banned users from database
+        # Load globally banned users
         try:
-            users = await get_gbanned()
-            for user_id in users:
+            for user_id in await get_gbanned():
                 BANNED_USERS.add(user_id)
-            users = await get_banned_users()
-            for user_id in users:
+            for user_id in await get_banned_users():
                 BANNED_USERS.add(user_id)
         except Exception:
             pass
 
-        # Step 4: Start sudo setup
         await sudo()
-
-        # Step 5: Start the main bot client
         await app.start()
 
-        # Step 6: Load all plugin modules
-        for all_module in ALL_MODULES:
+        # Load plugins
+        for module in ALL_MODULES:
             try:
-                importlib.import_module("BrandrdXMusic.plugins" + all_module)
+                importlib.import_module("BrandrdXMusic.plugins" + module)
             except Exception as e:
-                LOGGER("BrandrdXMusic.plugins").error(f"Failed to load plugin {all_module}: {e}")
+                LOGGER("BrandrdXMusic.plugins").error(f"Failed to load plugin {module}: {e}")
         LOGGER("BrandrdXMusic.plugins").info("Successfully Imported Modules...")
 
-        # Step 7: Start assistant/userbot clients
         await userbot.start()
-
-        # Step 8: Initialize voice call handler
         await Hotty.start()
 
-        # Step 9: Test VC (optional)
+        # Optional VC test
         try:
             await Hotty.stream_call("https://graph.org/file/e999c40cb700e7c684b75.mp4")
         except NoActiveGroupCall:
@@ -114,15 +114,11 @@ async def init():
         except Exception:
             pass
 
-        # Step 10: Setup decorators
         await Hotty.decorators()
 
-        LOGGER("BrandrdXMusic").info(
-            "BrandrdXMusic Bot started successfully! Ready to play music!\n"
-            "Join @BRANDRD_BOT for support"
-        )
+        LOGGER("BrandrdXMusic").info("BrandrdXMusic Bot started successfully!")
 
-        # Step 11: Keep the bot running
+        # Keep alive
         try:
             await idle()
         except KeyboardInterrupt:
@@ -130,7 +126,6 @@ async def init():
         except Exception as e:
             LOGGER("BrandrdXMusic").error(f"Error during idle: {e}")
 
-        # Step 12: Cleanup
         await app.stop()
         await userbot.stop()
         LOGGER("BrandrdXMusic").info("Stopping Brandrd Music Bot...")
@@ -138,6 +133,11 @@ async def init():
     except Exception as e:
         LOGGER("BrandrdXMusic").error(f"Critical error in init: {e}", exc_info=True)
         raise
+
+
+# ──────────────────────────────────────────────
+# Entry point
+# ──────────────────────────────────────────────
 
 if __name__ == "__main__":
     try:
@@ -149,12 +149,12 @@ if __name__ == "__main__":
         LOGGER("BrandrdXMusic").error(f"Bot exited with system error: {e}")
         raise
     except Exception as e:
-        LOGGER("BrandrdXMusic").error(f"Unexpected error caused bot to stop: {e}", exc_info=True)
+        LOGGER("BrandrdXMusic").error(f"Unexpected error: {e}", exc_info=True)
     finally:
         try:
             loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.stop()
+            if not loop.is_running():
+                loop.close()
         except Exception:
             pass
             
