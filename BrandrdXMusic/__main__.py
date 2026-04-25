@@ -3,6 +3,7 @@ import importlib
 import os
 import sys
 import threading
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pyrogram import idle
 from pytgcalls.exceptions import NoActiveGroupCall
@@ -29,28 +30,38 @@ from config import BANNED_USERS
 # HTTP Server for Render health checks
 class HealthCheckHandler(BaseHTTPRequestHandler):
     """Simple HTTP handler for Render health checks"""
-    
+
     def do_GET(self):
-        """Handle GET requests"""
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
         self.wfile.write(b'BrandrdXMusic Bot is running')
-    
+
     def log_message(self, format, *args):
-        """Suppress log messages to keep console clean"""
-        pass
+        pass  # Suppress noisy logs
 
 def run_http_server():
-    """Run a simple HTTP server for Render health checks"""
-    port = int(os.environ.get("PORT", 8000))
+    """Run HTTP server on port 8080 for Render"""
+    # Always use 8080 — Render Web Service expects this port
+    port = 8080
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    LOGGER(__name__).info(f"🌐 HTTP health check server started on port {port}")
+    LOGGER(__name__).info(f"HTTP health check server started on port {port}")
     server.serve_forever()
+
+def start_http_server():
+    """Start HTTP server in daemon thread and wait until it's actually bound"""
+    http_thread = threading.Thread(target=run_http_server, daemon=True)
+    http_thread.start()
+    # Give server a moment to bind the port before Render scans
+    time.sleep(2)
+    LOGGER(__name__).info("HTTP server thread started on port 8080")
 
 async def init():
     try:
-        # Step 1: Validate required environment variables
+        # Step 1: Start HTTP server FIRST so Render detects the open port immediately
+        start_http_server()
+
+        # Step 2: Validate required environment variables
         if (
             not config.STRING1
             and not config.STRING2
@@ -61,11 +72,6 @@ async def init():
             LOGGER(__name__).error("Assistant client variables not defined, exiting...")
             return
 
-        # Step 2: Start HTTP server in a separate thread (for Render)
-        http_thread = threading.Thread(target=run_http_server, daemon=True)
-        http_thread.start()
-        LOGGER(__name__).info("🌐 HTTP server thread started for Render health checks")
-
         # Step 3: Load banned users from database
         try:
             users = await get_gbanned()
@@ -74,15 +80,15 @@ async def init():
             users = await get_banned_users()
             for user_id in users:
                 BANNED_USERS.add(user_id)
-        except:
+        except Exception:
             pass
 
         # Step 4: Start sudo setup
         await sudo()
-        
+
         # Step 5: Start the main bot client
         await app.start()
-        
+
         # Step 6: Load all plugin modules
         for all_module in ALL_MODULES:
             try:
@@ -90,31 +96,29 @@ async def init():
             except Exception as e:
                 LOGGER("BrandrdXMusic.plugins").error(f"Failed to load plugin {all_module}: {e}")
         LOGGER("BrandrdXMusic.plugins").info("Successfully Imported Modules...")
-        
+
         # Step 7: Start assistant/userbot clients
         await userbot.start()
-        
+
         # Step 8: Initialize voice call handler
         await Hotty.start()
-        
+
         # Step 9: Test VC (optional)
         try:
             await Hotty.stream_call("https://graph.org/file/e999c40cb700e7c684b75.mp4")
         except NoActiveGroupCall:
             LOGGER("BrandrdXMusic").error(
-                "Please turn on the videochat of your log group/channel.
-"
+                "Please turn on the videochat of your log group/channel.\n"
                 "Bot will continue without VC test..."
             )
-        except:
+        except Exception:
             pass
-        
+
         # Step 10: Setup decorators
         await Hotty.decorators()
-        
+
         LOGGER("BrandrdXMusic").info(
-            "🎉 BrandrdXMusic Bot started successfully! Ready to play music! 🎵
-"
+            "BrandrdXMusic Bot started successfully! Ready to play music!\n"
             "Join @BRANDRD_BOT for support"
         )
 
@@ -125,12 +129,12 @@ async def init():
             LOGGER("BrandrdXMusic").info("Received stop signal...")
         except Exception as e:
             LOGGER("BrandrdXMusic").error(f"Error during idle: {e}")
-        
+
         # Step 12: Cleanup
         await app.stop()
         await userbot.stop()
         LOGGER("BrandrdXMusic").info("Stopping Brandrd Music Bot...")
-        
+
     except Exception as e:
         LOGGER("BrandrdXMusic").error(f"Critical error in init: {e}", exc_info=True)
         raise
@@ -151,5 +155,6 @@ if __name__ == "__main__":
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 loop.stop()
-        except:
+        except Exception:
             pass
+            
